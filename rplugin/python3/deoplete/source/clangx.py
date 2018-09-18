@@ -14,11 +14,11 @@ from itertools import chain
 from deoplete.util import getlines, error
 from .base import Base
 
+def dprint(*args, **kwargs):
+    pass
 # fff = open('/dev/pts/6', 'w')
 # def dprint(*args, **kwargs):
 #     print(*args, **kwargs, file=fff)
-def dprint(*args, **kwargs):
-    pass
 
 class Source(Base):
     run_dir = ''
@@ -37,7 +37,7 @@ class Source(Base):
             'clang_binary': 'clang',
             'default_c_options': '',
             'default_cpp_options': '',
-            'clang_file_path': ['.clang_complete'],
+            'clang_file_path': ['.clang_complete', '.git/clang_complete'],
         }
 
         self._args = []
@@ -45,7 +45,10 @@ class Source(Base):
     def on_event(self, context):
         self._args = self._args_from_neoinclude(context)
 
-        self.run_dir = context['cwd']
+        bufpath = self.vim.eval('bufname({})'.format(context['bufnr']))
+        self.run_dir = Path(os.path.dirname(bufpath))
+        dprint(context['bufnr'], bufpath, self.run_dir)
+
         clang = self._args_from_clang(context, self.vars['clang_file_path'])
         if clang:
             self._args += clang
@@ -62,9 +65,6 @@ class Source(Base):
         if not self.executable_clang:
             return []
 
-        if not self.run_dir:
-            self.run_dir = context['cwd']
-
         line = context['position'][1]
         column = context['complete_position'] + 1
         lang = 'c++' if context['filetype'] == 'cpp' else 'c'
@@ -79,12 +79,6 @@ class Source(Base):
             '-I', os.path.dirname(context['bufpath']),
         ]
         args += self._args
-
-        dprint('================')
-        dprint(context)
-        dprint('================')
-        dprint(' '.join(args))
-        dprint('----------------')
 
         try:
             proc = subprocess.Popen(args=args,
@@ -116,11 +110,10 @@ class Source(Base):
              if x != '']))
 
     def _find_clang_file(self, context, names):
-        cwd = Path(context['cwd'])
+        cwd = self.run_dir
         dirs = [cwd.resolve()] + list(cwd.parents)
         for d in dirs:
             d = str(d)
-            dprint(d, dirs, names)
             for name in names:
                 if isabs(name):
                     if isfile(name):
@@ -129,7 +122,7 @@ class Source(Base):
                     clang_file = join(d, name)
                     if isfile(clang_file):
                         return clang_file, d
-        return [], self.run_dir
+        return [], cwd
 
     def _args_from_clang(self, context, names):
         clang_file, self.run_dir = self._find_clang_file(context, names)
