@@ -14,6 +14,11 @@ from itertools import chain
 from deoplete.util import getlines, error
 from .base import Base
 
+# fff = open('/dev/pts/6', 'w')
+# def dprint(*args, **kwargs):
+#     print(*args, **kwargs, file=fff)
+def dprint(*args, **kwargs):
+    pass
 
 class Source(Base):
     run_dir = ''
@@ -32,7 +37,7 @@ class Source(Base):
             'clang_binary': 'clang',
             'default_c_options': '',
             'default_cpp_options': '',
-            'clang_file_path': ['.clang', '.clang_complete'],
+            'clang_file_path': ['.clang_complete'],
         }
 
         self._args = []
@@ -75,6 +80,12 @@ class Source(Base):
         ]
         args += self._args
 
+        dprint('================')
+        dprint(context)
+        dprint('================')
+        dprint(' '.join(args))
+        dprint('----------------')
+
         try:
             proc = subprocess.Popen(args=args,
                                     stdin=subprocess.PIPE,
@@ -109,6 +120,7 @@ class Source(Base):
         dirs = [cwd.resolve()] + list(cwd.parents)
         for d in dirs:
             d = str(d)
+            dprint(d, dirs, names)
             for name in names:
                 if isabs(name):
                     if isfile(name):
@@ -133,31 +145,29 @@ class Source(Base):
             error(self.vim, 'Parse Failed: ' + clang_file)
         return []
 
+    pattern1 = re.compile('COMPLETION:\s+(.{,}?)( : (.*))?$')
+    pattern2 = re.compile('(\[#|<#|#>|{#|#})')
+    pattern3 = re.compile('#\]')
+
     def _parse_lines(self, lines):
         candidates = []
         for line in lines:
-            m = re.search('^COMPLETION:\s+(.{,}?) : (.{,}?)$', line)
-            if not m:
-                m = re.search('^COMPLETION:\s+(.*)$', line)
-                if m:
-                    candidates.append({'word': m.group(1)})
+            # m = re.search('^COMPLETION:\s+(.{,}?) : (.{,}?)$', line)
+            m = re.match(self.pattern1, line)
+            if not m or m.group(1).startswith('PFNG'):
                 continue
-
-            menu = m.group(2)
-            menu = menu.replace('[#', '')
-            menu = menu.replace('#]', ' ')
-            menu = menu.replace('<#', '')
-            menu = menu.replace('#>', '')
-            menu = menu.replace('{#', '')
-            menu = menu.replace('#}', '')
+            elif m.group(2) is None:
+                candidates.append({'word': m.group(1)})
+                continue
 
             word = m.group(1)
-            if word.startswith('PFNG'):
-                continue
-
+            menu = m.group(3)
+            menu = re.sub(self.pattern2, '', menu)
+            menu = re.sub(self.pattern3, ' ', menu, 1)
             candidate = {'word': word, 'dup': 1}
             if menu != word:
                 candidate['menu'] = menu
                 candidate['info'] = menu
             candidates.append(candidate)
         return candidates
+
