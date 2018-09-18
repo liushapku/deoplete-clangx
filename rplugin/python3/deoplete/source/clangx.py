@@ -14,12 +14,7 @@ from itertools import chain
 from deoplete.util import getlines, error
 from .base import Base
 
-def dprint(*args, **kwargs):
-    pass
-# fff = open('/dev/pts/6', 'w')
-# def dprint(*args, **kwargs):
-#     print(*args, **kwargs, file=fff)
-
+# to help debug, look into deoplete/child.py
 class Source(Base):
     run_dir = ''
 
@@ -41,13 +36,13 @@ class Source(Base):
         }
 
         self._args = []
+        self.is_debug_enabled = True
 
     def on_event(self, context):
         self._args = self._args_from_neoinclude(context)
 
         bufpath = self.vim.eval('bufname({})'.format(context['bufnr']))
         self.run_dir = Path(os.path.dirname(bufpath))
-        dprint(context['bufnr'], bufpath, self.run_dir)
 
         clang = self._args_from_clang(context, self.vars['clang_file_path'])
         if clang:
