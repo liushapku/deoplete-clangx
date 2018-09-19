@@ -37,20 +37,80 @@ class Source(Base):
 
         self._args = []
         self.is_debug_enabled = True
+        self.buf_paths = {}
+        self.run_dirs = {}
+        self.cache = {}
+
+    def on_init(self, context):
+        self.warning('init: %s', context['event'])
+
 
     def on_event(self, context):
+        self.warning('event: %s', context['event'])
         self._args = self._args_from_neoinclude(context)
 
-        bufpath = self.vim.eval('bufname({})'.format(context['bufnr']))
-        self.run_dir = Path(os.path.dirname(bufpath))
+        # sometimes context['bufnr'] is str, sometimes it is int
+        bufnr = int(context['bufnr'])
+        event = context['event']
 
-        clang = self._args_from_clang(context, self.vars['clang_file_path'])
+        if event == 'BufDelete':
+            if bufnr in self.cache:
+                del self.cache[bufnr]
+            return
+        elif event == 'BufReadPost':
+            pass
+        elif event == 'Init':
+            pass
+        elif event == 'InsertEnter':
+            pass
+
+        if bufnr in self.cache:
+            self.warning('delete cache for %s', bufnr)
+            del self.cache[bufnr]
+
+        if bufnr not in self.buf_paths:
+            bufpath = self.vim.eval('bufname({})'.format(bufnr))
+            self.buf_paths[bufnr] = bufpath
+        else:
+            bufpath = self.buf_paths[bufnr]
+
+        cwd = Path(os.path.dirname(bufpath))
+        clang_file, self.run_dir = self._find_clang_file(
+                cwd, self.vars['clang_file_path'])
+        clang = self._args_from_clang(clang_file)
+
         if clang:
             self._args += clang
         else:
             self._args += (self.vars['default_cpp_options']
                            if context['filetype'] == 'cpp'
                            else self.vars['default_c_options'])
+
+    def _args_from_clang(self, clang_file):
+        if not clang_file:
+            return []
+        try:
+            with open(clang_file) as f:
+                args = shlex.split(' '.join(f.readlines()))
+                args = [expanduser(expandvars(p)) for p in args]
+                return args
+        except Exception as e:
+            error(self.vim, 'Parse Failed: ' + clang_file)
+        return []
+
+    def _find_clang_file(self, cwd, names):
+        dirs = [cwd.resolve()] + list(cwd.parents)
+        for d in dirs:
+            d = str(d)
+            for name in names:
+                if isabs(name):
+                    if isfile(name):
+                        return name, dirname(name)
+                else:
+                    clang_file = join(d, name)
+                    if isfile(clang_file):
+                        return clang_file, d
+        return None, cwd
 
     def get_complete_position(self, context):
         m = re.search('[a-zA-Z0-9_]*$', context['input'])
@@ -63,7 +123,14 @@ class Source(Base):
         line = context['position'][1]
         column = context['complete_position'] + 1
         lang = 'c++' if context['filetype'] == 'cpp' else 'c'
+        bufnr = int(context['bufnr'])
         buf = '\n'.join(getlines(self.vim)).encode(self.encoding)
+        cache_key = (line, column)
+        if bufnr in self.cache:
+            if cache_key in self.cache[bufnr]:
+                return self.cache[bufnr][cache_key]
+        else:
+            self.cache[bufnr] = {}
 
         args = [
             self.vars['clang_binary'],
@@ -73,6 +140,7 @@ class Source(Base):
             '-',
             '-I', os.path.dirname(context['bufpath']),
         ]
+        self.warning('=args: %s %s', bufnr, ' '.join(args))
         args += self._args
 
         try:
@@ -85,9 +153,12 @@ class Source(Base):
             result = result.decode(self.encoding)
         except subprocess.TimeoutExpired as e:
             proc.kill()
-            return []
-
-        return self._parse_lines(result.splitlines())
+            rv = []
+        else:
+            rv = self._parse_lines(result.splitlines())
+        finally:
+            self.cache[bufnr][cache_key] = rv
+            return rv
 
     def _args_from_neoinclude(self, context):
         if not self.vim.call(
@@ -103,35 +174,6 @@ class Source(Base):
                            context['bufnr'],
                            context['filetype']).replace(';', ',').split(',')
              if x != '']))
-
-    def _find_clang_file(self, context, names):
-        cwd = self.run_dir
-        dirs = [cwd.resolve()] + list(cwd.parents)
-        for d in dirs:
-            d = str(d)
-            for name in names:
-                if isabs(name):
-                    if isfile(name):
-                        return name, dirname(name)
-                else:
-                    clang_file = join(d, name)
-                    if isfile(clang_file):
-                        return clang_file, d
-        return [], cwd
-
-    def _args_from_clang(self, context, names):
-        clang_file, self.run_dir = self._find_clang_file(context, names)
-        if not clang_file:
-            return []
-
-        try:
-            with open(clang_file) as f:
-                args = shlex.split(' '.join(f.readlines()))
-                args = [expanduser(expandvars(p)) for p in args]
-                return args
-        except Exception as e:
-            error(self.vim, 'Parse Failed: ' + clang_file)
-        return []
 
     pattern1 = re.compile('COMPLETION:\s+(.{,}?)( : (.*))?$')
     pattern2 = re.compile('(\[#|<#|#>|{#|#})')
