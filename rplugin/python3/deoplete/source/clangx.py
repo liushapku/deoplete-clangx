@@ -54,9 +54,7 @@ class Source(Base):
         event = context['event']
 
         if event == 'BufDelete':
-            if bufnr in self.cache:
-                del self.cache[bufnr]
-            return
+            pass
         elif event == 'BufReadPost':
             pass
         elif event == 'Init':
@@ -64,9 +62,9 @@ class Source(Base):
         elif event == 'InsertEnter':
             pass
 
-        if bufnr in self.cache:
-            self.warning('delete cache for %s', bufnr)
-            del self.cache[bufnr]
+        # clear cache
+        if self.cache:
+            self.cache = {}
 
         if bufnr not in self.buf_paths:
             bufpath = self.vim.eval('bufname({})'.format(bufnr))
@@ -113,7 +111,12 @@ class Source(Base):
         return None, cwd
 
     def get_complete_position(self, context):
-        m = re.search('[a-zA-Z0-9_]*$', context['input'])
+        inputs = context['input']
+        m = re.search('[a-zA-Z0-9_]*$', inputs)
+        if m:
+            self.completing_word = inputs[:m.start()]
+        else:
+            self.completing_word = inputs
         return m.start() if m else -1
 
     def gather_candidates(self, context):
@@ -125,12 +128,9 @@ class Source(Base):
         lang = 'c++' if context['filetype'] == 'cpp' else 'c'
         bufnr = int(context['bufnr'])
         buf = '\n'.join(getlines(self.vim)).encode(self.encoding)
-        cache_key = (line, column)
-        if bufnr in self.cache:
-            if cache_key in self.cache[bufnr]:
-                return self.cache[bufnr][cache_key]
-        else:
-            self.cache[bufnr] = {}
+
+        if self.completing_word in self.cache:
+            return self.cache[self.completing_word]
 
         args = [
             self.vars['clang_binary'],
@@ -157,7 +157,7 @@ class Source(Base):
         else:
             rv = self._parse_lines(result.splitlines())
         finally:
-            self.cache[bufnr][cache_key] = rv
+            self.cache[self.completing_word] = rv
             return rv
 
     def _args_from_neoinclude(self, context):
