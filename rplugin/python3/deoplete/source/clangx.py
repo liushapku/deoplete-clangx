@@ -42,25 +42,25 @@ class Source(Base):
         self.cache = {}
 
     def on_init(self, context):
-        self.warning('init: %s', context['event'])
+        self.info('init: %s', context['event'])
 
 
     def on_event(self, context):
-        self.warning('event: %s', context['event'])
+        self.info('event: %s', context['event'])
         self._args = self._args_from_neoinclude(context)
 
         # sometimes context['bufnr'] is str, sometimes it is int
         bufnr = int(context['bufnr'])
-        event = context['event']
 
-        if event == 'BufDelete':
-            pass
-        elif event == 'BufReadPost':
-            pass
-        elif event == 'Init':
-            pass
-        elif event == 'InsertEnter':
-            pass
+        # event = context['event']
+        # if event == 'BufDelete':
+        #     pass
+        # elif event == 'BufReadPost':
+        #     pass
+        # elif event == 'Init':
+        #     pass
+        # elif event == 'InsertEnter':
+        #     pass
 
         # clear cache
         if self.cache:
@@ -112,12 +112,12 @@ class Source(Base):
 
     def get_complete_position(self, context):
         inputs = context['input']
-        m = re.search('[a-zA-Z0-9_]*$', inputs)
-        if m:
-            self.completing_word = inputs[:m.start()]
-        else:
-            self.completing_word = inputs
-        return m.start() if m else -1
+        m = re.search('[a-zA-Z0-9_]*$', inputs)  # will always match
+        pos = m.start()
+        inputs = inputs[:pos]
+        self.completing_word = re.search('\S*$', inputs).group()
+        self.debug('completing_word: %s', self.completing_word)
+        return pos
 
     def gather_candidates(self, context):
         if not self.executable_clang:
@@ -140,7 +140,6 @@ class Source(Base):
             '-',
             '-I', os.path.dirname(context['bufpath']),
         ]
-        self.warning('=args: %s %s', bufnr, ' '.join(args))
         args += self._args
 
         try:
